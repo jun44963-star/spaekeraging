@@ -1,0 +1,354 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>스피커 에이징 도우미 (Speaker Burn-in Tool)</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body {
+            background-color: #0f172a;
+            color: #f1f5f9;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+        }
+        .canvas-container {
+            position: relative;
+            width: 100%;
+            height: 200px;
+            background: #1e293b;
+            border-radius: 12px;
+            overflow: hidden;
+            border: 1px solid #334155;
+        }
+        .control-card {
+            background: #1e293b;
+            border: 1px solid #334155;
+            transition: all 0.3s ease;
+        }
+        .control-card:hover {
+            border-color: #3b82f6;
+        }
+        .btn-primary {
+            background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+            transition: transform 0.1s;
+        }
+        .btn-primary:active {
+            transform: scale(0.95);
+        }
+    </style>
+</head>
+<body class="min-h-screen flex flex-col items-center p-4 md:p-8">
+
+    <div class="max-w-3xl w-full">
+        <header class="text-center mb-8">
+            <h1 class="text-3xl md:text-4xl font-bold mb-2 text-blue-400">Speaker Aging Assistant</h1>
+            <p class="text-slate-400">새 스피커의 성능을 최대로 끌어올리기 위한 에이징 프로그램</p>
+        </header>
+
+        <!-- 시각화 영역 -->
+        <div class="canvas-container mb-6 shadow-2xl">
+            <canvas id="visualizer" class="w-full h-full"></canvas>
+            <div id="status-overlay" class="absolute top-2 left-2 bg-black/50 px-3 py-1 rounded text-xs font-mono text-blue-300">
+                STATUS: IDLE
+            </div>
+        </div>
+
+        <!-- 메인 컨트롤 -->
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
+            <!-- 소리 설정 -->
+            <div class="control-card p-6 rounded-2xl shadow-lg">
+                <h2 class="text-xl font-semibold mb-4 flex items-center">
+                    <span class="mr-2">🔊</span> 신호 선택
+                </h2>
+                <div class="space-y-3">
+                    <button onclick="setSignal('pink')" id="btn-pink" class="w-full py-3 px-4 rounded-xl border border-slate-600 hover:bg-slate-700 text-left flex justify-between items-center transition-colors">
+                        <span>핑크 노이즈 (권장)</span>
+                        <span class="text-xs text-slate-500">전 대역 고른 에너지</span>
+                    </button>
+                    <button onclick="setSignal('white')" id="btn-white" class="w-full py-3 px-4 rounded-xl border border-slate-600 hover:bg-slate-700 text-left flex justify-between items-center transition-colors">
+                        <span>화이트 노이즈</span>
+                        <span class="text-xs text-slate-500">날카로운 고주파 강조</span>
+                    </button>
+                    <button onclick="setSignal('sweep')" id="btn-sweep" class="w-full py-3 px-4 rounded-xl border border-slate-600 hover:bg-slate-700 text-left flex justify-between items-center transition-colors">
+                        <span>주파수 스윕 (20Hz - 20kHz)</span>
+                        <span class="text-xs text-slate-500">저음~고음 반복</span>
+                    </button>
+                </div>
+            </div>
+
+            <!-- 볼륨 및 타이머 -->
+            <div class="control-card p-6 rounded-2xl shadow-lg">
+                <h2 class="text-xl font-semibold mb-4 flex items-center">
+                    <span class="mr-2">⏱️</span> 환경 설정
+                </h2>
+                <div class="space-y-6">
+                    <div>
+                        <div class="flex justify-between mb-2">
+                            <label class="text-sm text-slate-400">마스터 볼륨</label>
+                            <span id="vol-value" class="text-sm font-mono text-blue-400">30%</span>
+                        </div>
+                        <input type="range" id="volume" min="0" max="1" step="0.01" value="0.3" class="w-full h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-blue-500">
+                        <p class="text-[10px] text-red-400 mt-2">※ 주의: 초기에는 반드시 낮은 볼륨에서 시작하세요.</p>
+                    </div>
+                    
+                    <div>
+                        <label class="text-sm text-slate-400 block mb-2">자동 종료 타이머</label>
+                        <select id="timer" class="w-full bg-slate-800 border border-slate-600 rounded-xl py-2 px-3 outline-none focus:border-blue-500">
+                            <option value="0">제한 없음</option>
+                            <option value="1800">30분</option>
+                            <option value="3600">1시간</option>
+                            <option value="7200">2시간</option>
+                            <option value="14400">4시간</option>
+                        </select>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 재생 버튼 -->
+        <div class="flex flex-col items-center gap-4">
+            <button id="start-btn" onclick="togglePlayback()" class="btn-primary w-full md:w-64 py-4 rounded-2xl text-xl font-bold shadow-xl flex justify-center items-center">
+                <span id="play-icon" class="mr-2">▶</span> <span id="btn-text">에이징 시작</span>
+            </button>
+            <div id="countdown" class="text-blue-400 font-mono text-lg hidden">남은 시간: --:--:--</div>
+        </div>
+
+        <!-- 안내 사항 -->
+        <footer class="mt-12 p-6 bg-slate-800/50 rounded-2xl border border-slate-700">
+            <h3 class="font-bold text-lg mb-3">💡 에이징 가이드</h3>
+            <ul class="text-sm text-slate-400 space-y-2 list-disc pl-5">
+                <li><strong class="text-slate-200">핑크 노이즈:</strong> 인간의 가청 대역에 가장 적합한 에너지 분포를 가져 가장 추천되는 방식입니다.</li>
+                <li><strong class="text-slate-200">볼륨 조절:</strong> 평소 음악을 듣는 볼륨의 50~70% 정도가 적당합니다. 대화 소리가 묻힐 정도면 충분합니다.</li>
+                <li><strong class="text-slate-200">권장 시간:</strong> 총 20~50시간을 권장하며, 한 번에 너무 오래 틀기보다는 2~4시간씩 나누어 진행하는 것이 좋습니다.</li>
+                <li><strong class="text-slate-200">휴식:</strong> 스피커 코일의 발열을 식히기 위해 에이징 세션 사이에 휴식 시간을 주세요.</li>
+            </ul>
+        </footer>
+    </div>
+
+    <script>
+        let audioCtx;
+        let source;
+        let gainNode;
+        let analyzer;
+        let isPlaying = false;
+        let currentSignal = 'pink';
+        let timerInterval;
+        let remainingTime = 0;
+
+        const canvas = document.getElementById('visualizer');
+        const ctx = canvas.getContext('2d');
+        const statusOverlay = document.getElementById('status-overlay');
+        const volSlider = document.getElementById('volume');
+        const volValue = document.getElementById('vol-value');
+        const startBtn = document.getElementById('start-btn');
+        const btnText = document.getElementById('btn-text');
+        const countdownEl = document.getElementById('countdown');
+
+        function initAudio() {
+            audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            gainNode = audioCtx.createGain();
+            gainNode.gain.value = volSlider.value;
+            
+            analyzer = audioCtx.createAnalyser();
+            analyzer.fftSize = 256;
+            
+            gainNode.connect(analyzer);
+            analyzer.connect(audioCtx.destination);
+            
+            draw();
+        }
+
+        volSlider.oninput = function() {
+            const val = Math.round(this.value * 100);
+            volValue.innerText = val + "%";
+            if (gainNode) {
+                gainNode.gain.setTargetAtTime(this.value, audioCtx.currentTime, 0.1);
+            }
+        };
+
+        function setSignal(type) {
+            currentSignal = type;
+            document.querySelectorAll('.control-card button').forEach(btn => {
+                btn.classList.remove('bg-blue-600/20', 'border-blue-500');
+            });
+            document.getElementById('btn-' + type).classList.add('bg-blue-600/20', 'border-blue-500');
+            
+            if (isPlaying) {
+                stopAudio();
+                startAudio();
+            }
+        }
+
+        // 초기 선택 효과
+        setSignal('pink');
+
+        function createPinkNoise() {
+            const bufferSize = 2 * audioCtx.sampleRate;
+            const buffer = audioCtx.createBuffer(1, bufferSize, audioCtx.sampleRate);
+            const output = buffer.getChannelData(0);
+            let b0, b1, b2, b3, b4, b5, b6;
+            b0 = b1 = b2 = b3 = b4 = b5 = b6 = 0.0;
+            
+            for (let i = 0; i < bufferSize; i++) {
+                let white = Math.random() * 2 - 1;
+                b0 = 0.99886 * b0 + white * 0.0555179;
+                b1 = 0.99332 * b1 + white * 0.0750759;
+                b2 = 0.96900 * b2 + white * 0.1538520;
+                b3 = 0.86650 * b3 + white * 0.3104856;
+                b4 = 0.55000 * b4 + white * 0.5329522;
+                b5 = -0.7616 * b5 - white * 0.0168980;
+                output[i] = b0 + b1 + b2 + b3 + b4 + b5 + b6 + white * 0.5362;
+                output[i] *= 0.11; // 볼륨 보정
+                b6 = white * 0.115926;
+            }
+            const node = audioCtx.createBufferSource();
+            node.buffer = buffer;
+            node.loop = true;
+            return node;
+        }
+
+        function createWhiteNoise() {
+            const bufferSize = 2 * audioCtx.sampleRate;
+            const buffer = audioCtx.createBuffer(1, bufferSize, audioCtx.sampleRate);
+            const output = buffer.getChannelData(0);
+            for (let i = 0; i < bufferSize; i++) {
+                output[i] = Math.random() * 2 - 1;
+            }
+            const node = audioCtx.createBufferSource();
+            node.buffer = buffer;
+            node.loop = true;
+            return node;
+        }
+
+        function createSweep() {
+            const osc = audioCtx.createOscillator();
+            osc.type = 'sine';
+            osc.frequency.setValueAtTime(20, audioCtx.currentTime);
+            osc.frequency.exponentialRampToValueAtTime(20000, audioCtx.currentTime + 10);
+            
+            // 반복을 위해 커스텀 로직 필요하지만 여기선 단순화
+            return osc;
+        }
+
+        function togglePlayback() {
+            if (!audioCtx) initAudio();
+            
+            if (isPlaying) {
+                stopAudio();
+            } else {
+                startAudio();
+            }
+        }
+
+        function startAudio() {
+            if (audioCtx.state === 'suspended') audioCtx.resume();
+            
+            if (currentSignal === 'pink') {
+                source = createPinkNoise();
+            } else if (currentSignal === 'white') {
+                source = createWhiteNoise();
+            } else if (currentSignal === 'sweep') {
+                source = audioCtx.createOscillator();
+                source.type = 'sine';
+                // 10초마다 20Hz~20kHz 반복 루프
+                const now = audioCtx.currentTime;
+                source.frequency.setValueAtTime(20, now);
+                function scheduleSweep(time) {
+                    source.frequency.exponentialRampToValueAtTime(20000, time + 8);
+                    source.frequency.setValueAtTime(20, time + 10);
+                    // 실제 웹 오디오 API에서 오실레이터 주파수 반복은 복잡하므로 
+                    // 간단히 긴 시간동안 램프를 주거나 재시작 로직이 필요
+                }
+                source.frequency.setTargetAtTime(20, now, 0);
+                // 단순화를 위해 10초 스윕 무한 반복 대신 지속적 상승/하강 설정 (실제 구현은 램프 예약)
+                setInterval(() => {
+                    if(isPlaying && currentSignal === 'sweep') {
+                        source.frequency.exponentialRampToValueAtTime(20000, audioCtx.currentTime + 5);
+                        source.frequency.exponentialRampToValueAtTime(20, audioCtx.currentTime + 10);
+                    }
+                }, 10000);
+            }
+
+            source.connect(gainNode);
+            source.start();
+            isPlaying = true;
+            startBtn.classList.replace('btn-primary', 'bg-red-600');
+            document.getElementById('play-icon').innerText = '■';
+            btnText.innerText = '중단하기';
+            statusOverlay.innerText = `STATUS: PLAYING (${currentSignal.toUpperCase()})`;
+            
+            handleTimer();
+        }
+
+        function stopAudio() {
+            if (source) {
+                source.stop();
+                source.disconnect();
+            }
+            isPlaying = false;
+            startBtn.classList.replace('bg-red-600', 'btn-primary');
+            document.getElementById('play-icon').innerText = '▶';
+            btnText.innerText = '에이징 시작';
+            statusOverlay.innerText = 'STATUS: IDLE';
+            clearInterval(timerInterval);
+            countdownEl.classList.add('hidden');
+        }
+
+        function handleTimer() {
+            const duration = parseInt(document.getElementById('timer').value);
+            if (duration > 0) {
+                remainingTime = duration;
+                countdownEl.classList.remove('hidden');
+                updateCountdownDisplay();
+                
+                timerInterval = setInterval(() => {
+                    remainingTime--;
+                    updateCountdownDisplay();
+                    if (remainingTime <= 0) {
+                        stopAudio();
+                        alert("설정된 에이징 시간이 완료되었습니다. 스피커에 휴식을 주세요!");
+                    }
+                }, 1000);
+            }
+        }
+
+        function updateCountdownDisplay() {
+            const h = Math.floor(remainingTime / 3600);
+            const m = Math.floor((remainingTime % 3600) / 60);
+            const s = remainingTime % 60;
+            countdownEl.innerText = `남은 시간: ${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
+        }
+
+        function draw() {
+            requestAnimationFrame(draw);
+            const bufferLength = analyzer.frequencyBinCount;
+            const dataArray = new Uint8Array(bufferLength);
+            analyzer.getByteFrequencyData(dataArray);
+
+            ctx.fillStyle = '#1e293b';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            const barWidth = (canvas.width / bufferLength) * 2.5;
+            let barHeight;
+            let x = 0;
+
+            for (let i = 0; i < bufferLength; i++) {
+                barHeight = dataArray[i] / 1.5;
+                ctx.fillStyle = `rgb(59, 130, 246)`;
+                ctx.fillRect(x, canvas.height - barHeight, barWidth, barHeight);
+                x += barWidth + 1;
+            }
+        }
+
+        window.addEventListener('resize', () => {
+            canvas.width = canvas.parentElement.clientWidth;
+            canvas.height = canvas.parentElement.clientHeight;
+        });
+        
+        // 초기 캔버스 사이즈 설정
+        canvas.width = canvas.parentElement.clientWidth;
+        canvas.height = canvas.parentElement.clientHeight;
+
+    </script>
+</body>
+</html>
